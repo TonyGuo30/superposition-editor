@@ -1,0 +1,15 @@
+Built-in ImageGen, ui-mockup, opaque background.
+
+Create one full-screen high fidelity desktop web application screenshot, 1536x1024 landscape, for an experimental animation editor called SUPERPOSITION. Design purpose: a real interactive prototype for editing an unresolved object with three alternative behaviors BOUNCE / SLIDE / SHATTER, then applying shared operations before committing a behavior.
+
+Art direction: precise professional creative tool, light true-white chrome, very pale cool-gray canvas with subtle tiny dot grid, black ink typography, electric cobalt blue accent, warm coral for shatter and teal for slide. Clean and practical HTML/CSS. No photos, no raster artwork required: canvas objects are intentionally geometric simulation primitives (square and triangle fragments), rendered in real app as SVG vectors.
+
+Full primary screen with: thin white top toolbar showing geometric three-overlapping-square logo, SUPERPOSITION, project name 'An object, three futures', Compare button and blue 'Resolve branch' action. Left sidebar width 220: Scene with selected Object 01, three colored behavior rows Bounce/Slide/Shatter all enabled, button 'Keep undecided', and a compact hint explaining edits follow the object across futures.
+
+Center canvas upper area: three aligned generous horizontal views in one row, each with small behavior label and color dot; each shows a simple square falling to a thin floor (bounce blue square trajectory, slide teal square trajectory, shatter coral triangle fragments), shared diagonal faint trajectory traces; at top of canvas a small line 'Editing all 3 futures'. Main canvas beneath is a larger single overlaid preview with transparent superimposed geometric paths and cubes, with a restrained white small floating play/restart toolbar at bottom.
+
+Right properties inspector width 280: heading 'Shared edits', toggle rows 'Show trajectory', 'Follow object', 'Caption after rest'; camera target segmented 'Center' / 'Largest piece'; editable caption text 'Every ending begins here.'; speed and impact sliders.
+
+Lower workspace: 3 parallel time tracks colored blue teal coral underneath a shared-object track, seconds ruler 0 to 6, dark vertical playhead at 2.4 sec. Bottom status bar tiny '1 logical object · 3 live branches · Edits preserved on resolve'. Strong visual hierarchy, compact but readable 12-14px UI labels, 22px project title, balanced clear structure.
+
+This is an app screenshot not a landing page, no marketing hero, no badges or fake metrics. All UI text should be sharp and code-native in later implementation. Include all listed controls, panels, three behavior states, playback and timeline in complete uncropped screenshot.
