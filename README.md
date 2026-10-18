@@ -1,6 +1,10 @@
 # Superposition Editor
 
-An interactive authoring environment for **continuing to build before making every decision**. Objects and relationships are defined once; unresolved choices produce complete, independently simulated worlds. Preview a combination, commit just one decision, or keep an entire world without losing the rest of your edits.
+**Build interactions before deciding which behavior to keep.**
+
+Superposition Editor is an experimental interactive system for authoring scenes across multiple possible worlds. Keep an object's motion and release timing undecided while adding more objects and connecting their behaviors. Each combination runs its own simulation, so the same relationship can trigger at different times in different worlds.
+
+Objects and relationships are defined once and shared across worlds. Preview any combination, commit a single decision, or keep an entire world without losing your edits. Reopen a decision whenever you want to explore its alternatives again.
 
 Built with React, TypeScript, Vite, SVG, and a deterministic simulation worker. No account, API key, backend, or model call is needed.
 
