@@ -1,34 +1,122 @@
-import { Box, Check, ChevronDown, CircleHelp, GitBranch, Layers2, Scan, Sparkles } from 'lucide-react';
-import { activeBranches, BRANCHES, toggleBranch, type EditorDocument } from '../engine';
-
-export default function ScenePanel({ doc, update, onHelp }: {
-  doc: EditorDocument; update: (change: (doc: EditorDocument) => EditorDocument) => void; onHelp: () => void;
+import { ArrowRight, ChevronRight, Plus } from 'lucide-react';
+import {
+  decisions,
+  MAX_OBJECTS,
+  MAX_RELATIONS,
+  titleCase,
+  type EditorDocument,
+  type SceneObject,
+} from '../engine';
+import type { Selection } from '../types';
+export function ObjectMark({ object, small = false }: { object: SceneObject; small?: boolean }) {
+  return (
+    <span
+      className={`object-mark ${object.shape} ${small ? 'small' : ''}`}
+      style={{ '--object-color': object.color } as React.CSSProperties}
+    />
+  );
+}
+export default function ScenePanel({
+  doc,
+  selection,
+  select,
+  addObject,
+  addLink,
+}: {
+  doc: EditorDocument;
+  selection: Selection;
+  select: (s: Selection) => void;
+  addObject: () => void;
+  addLink: () => void;
 }) {
-  const active = activeBranches(doc);
-  return <aside className="scene-panel" aria-label="Scene and futures">
-    <div className="panel-heading"><h2>Scene</h2><span className="scene-count">01</span></div>
-    <div className="scene-tree">
-      <div className="tree-scene"><ChevronDown size={14} /><span>Scene 01</span></div>
-      <div className="selected-object"><Box size={19} /><span>Object 01</span><span className="object-menu"><Layers2 size={14} /></span></div>
-      <div className="branch-list">{BRANCHES.map(branch => <label key={branch.id} className={`branch-row ${!active.includes(branch.id) ? 'inactive' : ''}`}>
-        <input type="checkbox" aria-label={`Enable ${branch.name}`} checked={active.includes(branch.id)}
-          disabled={!!doc.resolved || (active.length === 1 && active.includes(branch.id))}
-          onChange={() => update(d => toggleBranch(d, branch.id))} />
-        <i style={{ background: branch.color }} className="branch-dot" /><span>{branch.name}</span>
-        {doc.resolved === branch.id && <Check size={13} className="resolved-check" />}
-      </label>)}</div>
-    </div>
-    <button className={`undecided-button ${doc.resolved ? '' : 'is-undecided'}`}
-      onClick={() => update(d => ({ ...d, resolved: null }))} disabled={!doc.resolved}>
-      <Scan size={17} />{doc.resolved ? 'Reopen possibilities' : 'Keeping undecided'}
-    </button>
-    <div className="scene-note"><CircleHelp size={16} /><p>Edits follow this object across all futures. Shape what happens next, then choose an ending.</p></div>
-    <div className="logical-reference">
-      <div className="section-overline"><GitBranch size={13} /> LIVE REFERENCE</div>
-      <strong>object-01</strong>
-      <div className="reference-branches"><span>Intact</span><span>1 body</span><span>Shattered</span><span>{doc.edits.target === 'centroid' ? 'group center' : 'largest piece'}</span></div>
-      <p>The reference survives the change in shape.</p>
-    </div>
-    <button className="try-button" onClick={onHelp}><Sparkles size={14} /><span>A quick experiment</span><span className="keycap">?</span></button>
-  </aside>;
+  const all = decisions(doc);
+  return (
+    <aside className="scene-panel" aria-label="Scene objects and relationships">
+      <div className="rail-section">
+        <h2>
+          Scene <span>{doc.objects.length}</span>
+        </h2>
+        <button
+          className="outline-button add-button"
+          onClick={addObject}
+          disabled={doc.objects.length >= MAX_OBJECTS}
+        >
+          <Plus size={15} /> Add object
+        </button>
+        <div className="object-list">
+          {doc.objects.map((object) => {
+            const open = all.filter((d) => d.objectId === object.id && d.resolved === null).length;
+            return (
+              <button
+                key={object.id}
+                className={`object-row ${selection.type === 'object' && selection.id === object.id ? 'selected' : ''}`}
+                onClick={() => select({ type: 'object', id: object.id })}
+                aria-label={`Edit ${object.name}`}
+                aria-pressed={selection.type === 'object' && selection.id === object.id}
+              >
+                <ObjectMark object={object} />
+                <span className="row-copy">
+                  <strong>{object.name || 'Untitled'}</strong>
+                  <small>
+                    {open ? `${open} decision${open > 1 ? 's' : ''} open` : 'Choices set'}
+                  </small>
+                </span>
+                <ChevronRight size={14} />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="rail-section relations-section">
+        <h2>
+          Relationships <span>{doc.relations.length}</span>
+        </h2>
+        <button
+          className="outline-button add-button"
+          onClick={addLink}
+          disabled={doc.objects.length < 2 || doc.relations.length >= MAX_RELATIONS}
+        >
+          <Plus size={15} /> Add link
+        </button>
+        <div className="relation-list">
+          {doc.relations.map((link) => {
+            const source = doc.objects.find((o) => o.id === link.source)!,
+              target = doc.objects.find((o) => o.id === link.target)!;
+            return (
+              <button
+                key={link.id}
+                className={`relation-row ${!link.enabled ? 'muted-link' : ''} ${selection.type === 'relation' && selection.id === link.id ? 'selected' : ''}`}
+                onClick={() => select({ type: 'relation', id: link.id })}
+                aria-label={`Edit link ${source.name} to ${target.name}`}
+              >
+                <span className="relation-pair">
+                  <ObjectMark object={source} small />
+                  <strong>{source.name}</strong>
+                  <ArrowRight size={13} />
+                  <ObjectMark object={target} small />
+                  <strong>{target.name}</strong>
+                </span>
+                <small>
+                  {link.enabled
+                    ? `${titleCase(link.action)} · ${link.trigger === 'start' ? 'on release' : `after ${link.trigger}`}`
+                    : 'Disabled'}
+                </small>
+              </button>
+            );
+          })}
+        </div>
+        {!doc.relations.length && (
+          <p className="empty-note">Connect two objects to build a chain reaction.</p>
+        )}
+      </div>
+      <p className="rail-note">
+        Relationships refer to objects,
+        <br />
+        across every world.
+      </p>
+      <div className="rail-legend">
+        <span className="legend-ghost" /> Translucent shapes are alternatives, not extra objects.
+      </div>
+    </aside>
+  );
 }

@@ -1,70 +1,71 @@
 # Superposition Editor
 
-一个可以运行的交互系统原型：**保持对象的行为未决，继续编辑这个对象，最后再选择结局。**
+An interactive authoring environment for **continuing to build before making every decision**. Objects and relationships are defined once; unresolved choices produce complete, independently simulated worlds. Preview a combination, commit just one decision, or keep an entire world without losing the rest of your edits.
 
-## 启动
+Built with React, TypeScript, Vite, SVG, and a deterministic simulation worker. No account, API key, backend, or model call is needed.
 
-需要 Node.js 22.6+ 和 npm。
+## Run
+
+Requires Node.js 22.6+ and npm.
 
 ```sh
-npm ci
+npm install
 npm run dev
 ```
 
-打开终端显示的本地地址，通常为 http://127.0.0.1:5173/。
+Open the localhost URL printed by Vite. Production and engine validation:
 
 ```sh
-npm test       # 核心状态、引用与模拟测试
-npm run build # TypeScript 检查与生产构建
+npm test
+npm run build
+npm run preview
 ```
 
-## 建议先试这条路径
+The GitHub Actions workflow runs the engine tests and production build on pushes and pull requests.
 
-1. 保持 Bounce、Slide、Shatter 三种行为启用；按空格播放或拖动底部时间轴。
-2. 打开 **Follow object**，修改 **Caption**，打开 **Spin intact**。这些编辑只有一份，三个行为共享。
-3. 在 **Center / Largest piece** 之间切换。物体碎裂后，逻辑引用会指向碎片群的面积加权中心，或最大的碎片。完整物体上的这两种引用一致。
-4. 观察 Spin intact 的 **2/3** 标记：操作需要完整物体，所以碎裂分支明确跳过它。操作仍然保存在共享编辑中。
-5. 点击 **Resolve branch → Shatter → Resolve to Shatter**。字幕和相机引用保留，旋转标记变成 **0/1**。
-6. 点击 **Reopen possibilities** 或撤销，重新看到所有未来。窄屏下，可以通过顶部 Resolved 按钮打开对话框，再选择 Reopen possibilities。
+## Try the mechanism
 
-主画布中的十字 **shared origin** 可以拖动，三个未来共同更新。聚焦该控制后也可以用方向键调整，Shift + 方向键大幅调整。一次拖动只产生一个撤销步骤。
+The starter scene contains Atlas, Echo, and Ember, with three independent open decisions and **12 exact worlds**. Echo follows Atlas after its impact; Ember launches after Echo first rests. Atlas's behavior changes the event timing, so Ember can start at different times in different worlds.
 
-上方三个预览可点击以单独查看分支；**Compare** 并排显示。**Impact strength** 会改变运动和各分支的停止时间；字幕由每个分支自己的停止事件触发。
+1. **Add object**, name it Relay, and include both Bounce and Slide in its inspector. Include Now and +0.6 s under Release delay as well. The two dimensions remain independently undecided, giving 48 worlds with the original scene.
+2. Select an existing source and **Add link**. In the relationship inspector, set its target, trigger, action, delay, and optional follow offset. The relationship applies to every world; no branch has to be chosen first.
+3. Click options under **Open decisions** to combine preview filters. These buttons do not modify the document. Click **Preview** in the world explorer to isolate a complete combination. **Worlds** above the canvas compares the first six matching worlds; pagination below can reach every combination.
+4. Inspect **Events** to see actual release, floor impact, rest, and relationship activation times in the previewed world, or the first matching world when no world is isolated. Click an event to seek there.
+5. Click an option's **lock** to commit that dimension alone. **Keep world** commits the whole combination. **Reopen**, Undo, and Redo preserve objects, edits, links, and candidate alternatives.
+6. **New** starts a blank, single-object scene. The reset icon loads the starter scene. Both are undoable. Import and Export round-trip the complete unresolved document.
 
-快捷键：Space 播放/暂停，R 重播，⌘/Ctrl Z 撤销，⌘/Ctrl Shift Z 重做，? 查看交互说明。文本输入期间保留原生输入行为。
+Drag a labeled origin to update the object in every world. Origins also accept arrow keys (Shift for larger steps). Space plays/pauses, R replays, and Cmd/Ctrl Z undoes. The in-app Help includes Chinese instructions.
 
-场景自动保存在当前浏览器的 localStorage 中。顶部下载按钮导出真实场景 JSON；圆形重置按钮恢复初始场景，重置本身可以撤销。JSON 导入暂未提供。字体已随项目打包，应用运行不依赖外部 API、账号或模型服务。
+## Authoring model
 
-## 系统模型
+- Up to **10 logical objects**, each with editable identity, shape, color, size, position, horizontal launch velocity, bounce energy, spin, and reference anchor.
+- Two independent choice dimensions per object: **on-impact behavior** (bounce, slide, shatter) and **release delay** (0, 0.6, 1.2 seconds). Include any nonempty subset of each dimension. Adding a new alternative reopens that decision.
+- Up to **24 directed relationships**. Triggers: source release, first floor impact, first rest, or source–target contact. Actions: spring follow, launch, directional push, or pulse highlight. Events can be delayed.
+- Follow references the source's area-weighted centroid or largest fragment. Shattering preserves the parent identity and gives each of six fragments a stable child identity. A shattered group can also be a follower.
+- Launch holds a target at its origin until a matching event. Its own release delay starts then. Multiple launch links use the earliest activation; an event that never occurs leaves the target waiting.
+- Relationships form a directed acyclic graph. Self-links, causal cycles, and simultaneous competing follow sources are rejected with an explanation. Links can be disabled without being deleted.
+- The scene contains a maximum of **128 active combinations**. All are evaluated; there is no hidden sampling. An edit or import that exceeds the budget is rejected. Commit another decision before expanding further. Reopening is subject to the same budget.
 
-```text
-EditorDocument
- ├─ object-01                  稳定的逻辑对象 ID
- ├─ enabled / resolved         可能性集合与最终选择
- ├─ origin / impact            所有分支共用的输入
- └─ SharedEdits                相机、轨迹、字幕、旋转、缩放
-           │
-           ├─ evaluateBranch(bounce, t) → 1 body
-           ├─ evaluateBranch(slide, t)  → 1 body
-           └─ evaluateBranch(shatter,t) → 7 stable fragment IDs
-                     │
-                     └─ reference resolution → centroid / largest fragment
-```
+## Runtime and semantics
 
-- `src/engine.ts`：确定性的按时间求值器、停止事件、引用解析、分支适用性与存储数据校验。
-- `src/useEditor.ts`：共享文档、撤销/重做、拖动事务、播放时钟与本地保存。
-- `src/components/Stage.tsx`：SVG 动画、轨迹、相机跟随、起点拖动与对比视图。
-- `src/components/Timeline.tsx`：每个分支的撞击/停止事件、字幕区间和统一播放头。
-- `src/components/Inspector.tsx`：共享编辑与适用范围。
-- `src/components/Dialogs.tsx`：确定行为与中文实验指引。
-- `design/`：ImageGen 界面参考与实现 brief。几何物体是原生 SVG 模拟元素。
+`src/engine.ts` is a pure document-to-world evaluator. It enumerates stable assignment IDs, integrates each world at 60 Hz over a 10-second window, and caches 30 Hz snapshots for deterministic scrubbing. Simulation runs in a cancellable Web Worker with a short input debounce, keeping direct manipulation responsive. Superseded jobs are terminated; the UI marks recomputation instead of showing stale worlds as current. Names, colors, and title changes reuse the physics result.
 
-确定行为只改变 `resolved`，不复制、不清空共享编辑。片段身份由父逻辑 ID 派生；引用规则在求值时解析。模拟采用简化的解析运动模型，便于稳定重放和测试。
+Event cascades run to a bounded fixed point. State and edge processing have a canonical order, and follow forces read the previous step's anchors, so rearranging document rows does not change outcomes. Event rules are one-shot. The log distinguishes actual events from links that never activate during the window.
 
-## 这一版的边界
+This is a bounded 2D authoring system, **not a general rigid-body physics engine**. Contact senses bounding-circle overlap; objects do not automatically collide with each other. Add Push to create a contact response. Bodies do collide with the floor and side walls. Follow uses a damped spring and overrides gravity while active; impact alternatives still apply when the body reaches the floor. Rest means speed below a small threshold for 0.3 seconds, with a followed source also at rest. The rest trigger uses the first rest, even if a later impulse wakes the body.
 
-这是用于判断交互是否值得深入的机制原型。支持一个逻辑对象、三个预设行为，以及有限的共享操作；它**尚不是**通用的未决状态编辑器。
+Current limits: fixed 10-second window, the listed behavior/action vocabulary, two choice dimensions per object, no cyclic constraints, no arbitrary scripting, and no collaborative editing or video export. No claim of research novelty is made by the implementation alone.
 
-尚未实现：多个对象和多个未决决策的组合、任意行为图、用户自定义操作、自动推断跨结构引用、符号状态合并、共享计算子图或视频导出。轨迹、适用性和引用规则目前均为显式实现，未使用 LLM 模拟推断能力。
+## Persistence
 
-下一步最值得验证：对碎裂后结构不同的对象，用户是否能理解并继续使用同一个引用；以及在增加第二个未决决策后，如何让编辑与引用自然组合。
+Scenes autosave on this device under `superposition-document-v2`. Preview filters, selected world, and playback state are transient. History holds the last 60 document edits. Dragging is a single history transaction. Import validates all IDs, references, ranges, choices, graph constraints, and world limits, and is itself undoable. Legacy v1 JSON exports migrate to a single-object v2 scene; the old v1 local-storage key remains untouched. Migration carries geometry, motion choices, spin, and reference anchor; v1 camera and caption settings have no v2 document equivalent.
+
+## Structure
+
+- `src/engine.ts`, `src/engine.test.ts`: model, validation, exact world enumeration, event simulation, and semantic tests.
+- `src/simulation.worker.ts`, `src/useSimulation.ts`: cancellable background computation.
+- `src/useEditor.ts`: persistence, history, gestures, and playback.
+- `src/components/`: scene/relationship list, SVG canvas, choice shelf, context inspector, world/event explorer, and help.
+- `design/workspace-v2.png`, `design/system-v2.md`: visual reference, design tokens, and interaction contract. The original single-object concept is retained in `design/concept.png`.
+
+Fonts are bundled locally. Scene geometry, interface labels, controls, and timelines are native code; the concept images are design references only.

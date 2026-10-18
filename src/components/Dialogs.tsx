@@ -1,54 +1,67 @@
-import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, Check, GitBranch, Layers2, LockKeyhole, X } from 'lucide-react';
-import { BRANCHES, type BranchId, type EditorDocument } from '../engine';
-
-function Modal({ open, onClose, labelledBy, children, className = '' }: {
-  open: boolean; onClose: () => void; labelledBy: string; children: React.ReactNode; className?: string;
-}) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => { if (open && !ref.current?.open) ref.current?.showModal(); else if (!open && ref.current?.open) ref.current?.close(); }, [open]);
-  return <dialog ref={ref} className={`modal ${className}`} aria-labelledby={labelledBy}
-    onCancel={onClose} onClick={e => { if (e.target === ref.current) {
-      const r = ref.current.getBoundingClientRect();
-      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) onClose();
-    } }}>
-    <button className="icon-button modal-close" aria-label="Close dialog" onClick={onClose}><X size={18} /></button>{children}
-  </dialog>;
-}
-export function ResolveDialog({ open, doc, initialBranch, onClose, onResolve, onReopen }: {
-  open: boolean; doc: EditorDocument; initialBranch: BranchId | null;
-  onClose: () => void; onResolve: (id: BranchId) => void; onReopen: () => void;
-}) {
-  const [selected, setSelected] = useState<BranchId>('bounce');
-  useEffect(() => { if (open) setSelected(initialBranch && doc.enabled.includes(initialBranch) ? initialBranch : doc.resolved || doc.enabled[0]); }, [open, initialBranch, doc.enabled, doc.resolved]);
-  const chosen = BRANCHES.find(b => b.id === selected)!;
-  const edits = [doc.edits.trajectory && 'Trajectory', doc.edits.follow && 'Camera follow', doc.edits.captionEnabled && 'Caption after rest', doc.edits.spin && 'Spin intact', doc.edits.scale !== 1 && 'Object scale'].filter(Boolean);
-  return <Modal open={open} onClose={onClose} labelledBy="resolve-title">
-    <div className="dialog-symbol"><GitBranch size={24} /></div><h2 id="resolve-title">Choose an ending.</h2>
-    <p className="dialog-description">Resolve the behavior. Keep the work you’ve already done.</p>
-    <div className="resolve-options">{BRANCHES.filter(b => doc.enabled.includes(b.id)).map(branch => <button key={branch.id}
-      className={`resolve-option ${selected === branch.id ? 'chosen' : ''}`} aria-pressed={selected === branch.id}
-      onClick={() => setSelected(branch.id)} style={{ '--branch-color': branch.color } as React.CSSProperties}>
-      <i className="branch-dot" /><div><strong>{branch.name}</strong><span>{branch.description}</span></div>
-      <span className="radio-circle">{selected === branch.id && <Check size={12} />}</span>
-    </button>)}</div>
-    <div className="preserved-edits"><Layers2 size={16} /><div><strong>Shared edits stay attached</strong><p>{edits.length ? edits.join(' · ') : 'Origin and impact settings'}{doc.edits.spin && selected === 'shatter' ? ' · Spin remains stored, but does not apply to fragments.' : ''}</p></div></div>
-    <button className="primary-button resolve-confirm" onClick={() => onResolve(selected)}>Resolve to {chosen.name}<ArrowRight size={16} /></button>
-    {doc.resolved && <button className="secondary-button reopen-dialog-button" onClick={onReopen}><Layers2 size={14} />Reopen possibilities</button>}
-    <p className="dialog-reassurance"><LockKeyhole size={11} /> You can reopen possibilities or undo this decision.</p>
-  </Modal>;
-}
+import { useEffect, useRef } from 'react';
+import { X } from 'lucide-react';
 export function HelpDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  return <Modal open={open} onClose={onClose} labelledBy="help-title" className="help-modal">
-    <div className="dialog-symbol"><Layers2 size={24} /></div><h2 id="help-title">Edit first. Decide later.</h2>
-    <p className="dialog-description">一个物体，三种未来。先操作它，再决定它会变成什么。</p>
-    <ol className="experiment-steps">
-      <li><span>01</span><div><strong>保持三种行为未决</strong><p>上方预览和主画布共享同一时间。点击预览可以单独观察某种未来；Compare 可以并排播放。</p></div></li>
-      <li><span>02</span><div><strong>对同一个“它”进行编辑</strong><p>打开 Follow object，修改 Caption，再打开 Spin intact。旋转会标记为 2/3：碎裂之后不再有一个完整刚体。</p></div></li>
-      <li><span>03</span><div><strong>改变“它”的指向</strong><p>选择 Center 或 Largest piece。物体碎裂后，相机分别跟随碎片群的中心或最大的碎片；在完整分支里，两者指向同一物体。</p></div></li>
-      <li><span>04</span><div><strong>最后再选一种结局</strong><p>点击 Resolve branch。所有共享编辑保留，字幕在该分支真正停止运动时出现。Reopen possibilities 随时恢复其他未来。</p></div></li>
-    </ol>
-    <div className="help-shortcuts"><span><kbd>Space</kbd> 播放 / 暂停</span><span><kbd>R</kbd> 重播</span><span><kbd>⌘ / Ctrl Z</kbd> 撤销</span></div>
-    <button className="primary-button resolve-confirm" onClick={onClose}>Start experimenting <ArrowRight size={16} /></button>
-  </Modal>;
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (open && !ref.current?.open) ref.current?.showModal();
+    if (!open && ref.current?.open) ref.current?.close();
+  }, [open]);
+  return (
+    <dialog
+      ref={ref}
+      className="help-dialog"
+      onCancel={onClose}
+      onClick={(e) => {
+        if (e.target === ref.current) onClose();
+      }}
+      aria-labelledby="help-title"
+    >
+      <div className="dialog-heading">
+        <h2 id="help-title">Build before you decide.</h2>
+        <button className="icon-button" onClick={onClose} aria-label="Close help">
+          <X size={18} />
+        </button>
+      </div>
+      <p>
+        Superposition 是一个可以带着未决选择继续工作的交互编辑器。New
+        可从单个对象的空白场景开始，重置按钮可加载示例。每个世界是一组选择的完整组合，所有世界共享同一份对象与关系定义。
+      </p>
+      <ol>
+        <li>
+          <strong>保留多个选择。</strong>在右侧为对象勾选多个 On impact 或 Release
+          delay。两个维度可以同时未定；添加对象也不需要先决定其他对象。
+        </li>
+        <li>
+          <strong>继续连接对象。</strong>Add link 选择 source、target、触发事件和动作。Follow
+          跨碎裂保持对象引用，Launch 在各世界对应事件后启动，Push 施加推力，Pulse 高亮。
+        </li>
+        <li>
+          <strong>只预览，不做决定。</strong>下面的选项按钮是可组合的预览筛选。Worlds 表里的 Preview
+          可单独查看完整组合；Events 显示该世界的因果时间。
+        </li>
+        <li>
+          <strong>逐个决定。</strong>选项旁的锁只确定这一项。Keep world 确定整个组合，Reopen
+          可以恢复备选，编辑与关系都会保留。Undo / Redo 也支持这些操作。
+        </li>
+      </ol>
+      <div className="help-boundaries">
+        <strong>运行范围</strong>
+        <p>
+          最多 10 个对象、24 条关系、128 个精确世界。时间窗口 10 秒，固定 60 Hz
+          积分。关系是有向无环图；事件只触发一次。接触按包围圆检测，对象默认不互相弹开；需要时添加
+          Push。静止事件取第一次静止。多个 Launch 取最先发生的一次。未发生的事件会在 Events 中解释。
+        </p>
+        <p>
+          JSON 自动保存在本机。Import / Export
+          可保存完整的未决场景，也支持旧版文件。没有后端或模型调用。
+        </p>
+      </div>
+      <div className="help-shortcuts">
+        <span>Space 播放</span>
+        <span>R 重播</span>
+        <span>⌘/Ctrl Z 撤销</span>
+        <span>方向键移动 origin</span>
+      </div>
+    </dialog>
+  );
 }

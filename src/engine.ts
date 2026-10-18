@@ -1,164 +1,602 @@
-/** One document owns edits. Branches are deterministic evaluations, not copies. */
-export type BranchId = 'bounce' | 'slide' | 'shatter';
-export type ReferenceTarget = 'centroid' | 'largest';
+/** The document stores intentions once. Worlds are deterministic interpretations of those intentions. */
 export type Point = { x: number; y: number };
-export type SharedEdits = {
-  trajectory: boolean;
-  follow: boolean;
-  captionEnabled: boolean;
-  caption: string;
-  target: ReferenceTarget;
+export type Motion = 'bounce' | 'slide' | 'shatter';
+export type Shape = 'square' | 'circle' | 'diamond';
+export type Anchor = 'centroid' | 'largest';
+export type Choice<T extends string | number> = { options: T[]; resolved: T | null };
+export type SceneObject = {
+  id: string;
+  name: string;
+  color: string;
+  shape: Shape;
+  origin: Point;
+  size: number;
+  velocity: number;
+  energy: number;
+  anchor: Anchor;
   spin: boolean;
-  scale: number;
+  motion: Choice<Motion>;
+  delay: Choice<number>;
+};
+export type Trigger = 'start' | 'impact' | 'rest' | 'contact';
+export type Action = 'follow' | 'push' | 'launch' | 'pulse';
+export type Relation = {
+  id: string;
+  source: string;
+  target: string;
+  trigger: Trigger;
+  action: Action;
+  enabled: boolean;
+  delay: number;
+  strength: number;
+  offset: Point;
 };
 export type EditorDocument = {
-  version: 1;
-  objectId: 'object-01';
-  enabled: BranchId[];
-  resolved: BranchId | null;
-  origin: Point;
-  impact: number;
-  edits: SharedEdits;
+  version: 2;
+  title: string;
+  objects: SceneObject[];
+  relations: Relation[];
 };
-export type Piece = Point & { id: string; size: number; angle: number; polygon: boolean };
-export type BranchFrame = {
-  branch: BranchId;
+export type Decision = {
+  id: string;
+  objectId: string;
+  kind: 'motion' | 'delay';
+  label: string;
+  options: (Motion | number)[];
+  resolved: Motion | number | null;
+};
+export type Assignment = Record<string, Motion | number>;
+export type World = { id: string; assignment: Assignment };
+export type Piece = Point & { id: string; size: number; angle: number; shape: Shape | 'fragment' };
+export type ObjectFrame = {
+  id: string;
   pieces: Piece[];
-  target: Point;
-  restAt: number;
+  anchor: Point;
+  released: boolean;
   settled: boolean;
-  caption: string | null;
-  spinApplicable: boolean;
+  pulse: boolean;
 };
-export const BRANCHES: { id: BranchId; name: string; color: string; description: string }[] = [
-  { id: 'bounce', name: 'Bounce', color: '#2560ff', description: 'Elastic impact. One body.' },
-  { id: 'slide', name: 'Slide', color: '#159da1', description: 'Carry momentum. One body.' },
-  { id: 'shatter', name: 'Shatter', color: '#f97366', description: 'One object becomes seven pieces.' },
-];
-export const DURATION = 6;
-export const WORLD_WIDTH = 900;
-export const FLOOR = 290;
-const GRAVITY = 430;
-const APPROACH_VX = 100;
-const FRAGMENTS = [
-  { size: 13, vx: -126, vy: 137, angle: -1.1 },
-  { size: 17, vx: -60, vy: 191, angle: 1.6 },
-  { size: 23, vx: 62, vy: 163, angle: -.4 },
-  { size: 12, vx: 118, vy: 208, angle: 2.1 },
-  { size: 16, vx: 165, vy: 126, angle: -.8 },
-  { size: 11, vx: 216, vy: 169, angle: 1.2 },
-  { size: 14, vx: 261, vy: 107, angle: -2.4 },
-];
-export function createDocument(): EditorDocument {
+export type Frame = { time: number; objects: ObjectFrame[]; activeLinks: string[] };
+export type SceneEvent = {
+  time: number;
+  type: 'release' | 'impact' | 'rest' | 'link';
+  objectId: string;
+  relationId?: string;
+};
+export type Simulation = {
+  world: World;
+  frames: Frame[];
+  events: SceneEvent[];
+  waiting: string[];
+  dormant: string[];
+};
+export const DURATION = 10;
+export const FLOOR = 430;
+export const WIDTH = 960;
+export const HEIGHT = 490;
+export const MAX_WORLDS = 128;
+export const MAX_OBJECTS = 10;
+export const MAX_RELATIONS = 24;
+export const MOTIONS: Motion[] = ['bounce', 'slide', 'shatter'];
+export const DELAYS = [0, 0.6, 1.2];
+export const COLORS = ['#2560ff', '#159da1', '#f97366', '#9460df', '#d89d19', '#de5c9f', '#447b6f'];
+export const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+export const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+export const optionLabel = (v: string | number) =>
+  typeof v === 'number' ? (v === 0 ? 'Now' : `+${v.toFixed(1)} s`) : titleCase(v);
+export const decisionId = (id: string, kind: 'motion' | 'delay') => `${id}:${kind}`;
+export function makeObject(index: number, id = `object-${index + 1}`): SceneObject {
   return {
-    version: 1, objectId: 'object-01', enabled: ['bounce', 'slide', 'shatter'],
-    resolved: null, origin: { x: 108, y: 62 }, impact: .8,
-    edits: { trajectory: true, follow: false, captionEnabled: true,
-      caption: 'Every ending begins here.', target: 'centroid', spin: false, scale: 1 },
+    id,
+    name: ['Atlas', 'Echo', 'Ember', 'Nova', 'Orbit', 'Mica', 'Flux', 'Lumen', 'Pico', 'Vega'][
+      index % 10
+    ],
+    color: COLORS[index % COLORS.length],
+    shape: (['square', 'circle', 'diamond'] as Shape[])[index % 3],
+    origin: { x: 100 + (index % 5) * 150, y: 65 + (index % 3) * 60 },
+    size: 30,
+    velocity: 95 - index * 8,
+    energy: 0.65,
+    anchor: 'centroid',
+    spin: false,
+    motion: { options: ['bounce'], resolved: null },
+    delay: { options: [0], resolved: null },
   };
 }
-export const clamp = (n: number, low: number, high: number) => Math.min(high, Math.max(low, n));
-export function activeBranches(doc: EditorDocument): BranchId[] {
-  return doc.resolved ? [doc.resolved] : doc.enabled;
+export function createDocument(): EditorDocument {
+  const atlas = makeObject(0),
+    echo = makeObject(1),
+    ember = makeObject(2);
+  atlas.motion.options = [...MOTIONS];
+  echo.motion.options = ['bounce', 'slide'];
+  echo.origin = { x: 380, y: 150 };
+  echo.velocity = 45;
+  ember.origin = { x: 700, y: 100 };
+  ember.velocity = -70;
+  ember.delay.options = [0, 0.6];
+  return {
+    version: 2,
+    title: 'An unfinished chain reaction',
+    objects: [atlas, echo, ember],
+    relations: [
+      {
+        id: 'link-1',
+        source: atlas.id,
+        target: echo.id,
+        trigger: 'impact',
+        action: 'follow',
+        enabled: true,
+        delay: 0,
+        strength: 1,
+        offset: { x: 120, y: -45 },
+      },
+      {
+        id: 'link-2',
+        source: echo.id,
+        target: ember.id,
+        trigger: 'rest',
+        action: 'launch',
+        enabled: true,
+        delay: 0,
+        strength: 1,
+        offset: { x: 100, y: -40 },
+      },
+    ],
+  };
 }
-export function impactTime(doc: EditorDocument): number {
-  return Math.sqrt(2 * Math.max(0, FLOOR - 16 * doc.edits.scale - doc.origin.y) / GRAVITY);
+export function decisions(doc: EditorDocument): Decision[] {
+  return doc.objects.flatMap((o) =>
+    (['motion', 'delay'] as const)
+      .filter((k) => o[k].options.length > 1)
+      .map((kind) => ({
+        id: decisionId(o.id, kind),
+        objectId: o.id,
+        kind,
+        label: kind === 'motion' ? 'On impact' : 'Release delay',
+        options: o[kind].options,
+        resolved: o[kind].resolved,
+      })),
+  );
 }
-function restDuration(up: number, restitution: number): number {
-  let duration = 0;
-  for (let i = 0; i < 8 && up > 14; i++, up *= restitution) duration += 2 * up / GRAVITY;
-  return duration;
+export function worldCount(doc: EditorDocument): number {
+  return doc.objects.reduce(
+    (count, o) =>
+      count *
+      (o.motion.resolved === null ? o.motion.options.length : 1) *
+      (o.delay.resolved === null ? o.delay.options.length : 1),
+    1,
+  );
 }
-function bounceHeight(t: number, up: number, restitution: number): number {
-  for (let i = 0; i < 8 && up > 14; i++, up *= restitution) {
-    const duration = 2 * up / GRAVITY;
-    if (t <= duration) return Math.max(0, up * t - .5 * GRAVITY * t * t);
-    t -= duration;
-  }
-  return 0;
-}
-export function branchRestAt(doc: EditorDocument, id: BranchId): number {
-  const hit = impactTime(doc);
-  if (id === 'slide') return hit + (170 + doc.impact * 100) / 105;
-  if (id === 'bounce') return hit + restDuration(GRAVITY * hit * (.46 + doc.impact * .28), .52);
-  return hit + Math.max(...FRAGMENTS.map(f => restDuration(f.vy * (.55 + doc.impact * .55), .26)));
-}
-export function evaluateBranch(doc: EditorDocument, id: BranchId, time: number): BranchFrame {
-  const t = clamp(time, 0, DURATION);
-  const hit = impactTime(doc);
-  const restAt = branchRestAt(doc, id);
-  const settled = t >= restAt;
-  const size = 32 * doc.edits.scale;
-  const hitX = doc.origin.x + APPROACH_VX * hit;
-  const spinApplicable = id !== 'shatter';
-  let pieces: Piece[];
-  if (t < hit) {
-    pieces = [{ id: doc.objectId, x: doc.origin.x + APPROACH_VX * t,
-      y: doc.origin.y + .5 * GRAVITY * t * t, size,
-      angle: doc.edits.spin && spinApplicable ? t * 170 : 12 + t * 10, polygon: false }];
-  } else if (id === 'shatter') {
-    const dt = t - hit;
-    pieces = FRAGMENTS.map((f, index) => {
-      const partSize = f.size * doc.edits.scale;
-      const up = f.vy * (.55 + doc.impact * .55);
-      const localRest = restDuration(up, .26);
-      const localT = Math.min(dt, localRest);
-      return { id: `${doc.objectId}/fragment-${index}`, size: partSize, polygon: true,
-        x: hitX + f.vx * (1 - Math.exp(-.78 * localT)) / .78,
-        y: FLOOR - partSize * .5 - bounceHeight(localT, up, .26),
-        angle: f.angle * 40 + localT * (index % 2 ? 120 : -150) };
-    });
-  } else {
-    const dt = Math.min(t - hit, restAt - hit);
-    let x: number;
-    let y = FLOOR - size / 2;
-    if (id === 'slide') {
-      const vx = 170 + doc.impact * 100;
-      x = hitX + vx * dt - .5 * 105 * dt * dt;
-    } else {
-      x = hitX + 160 * (1 - Math.exp(-.35 * dt)) / .35;
-      y -= bounceHeight(dt, GRAVITY * hit * (.46 + doc.impact * .28), .52);
+/** Stable IDs depend on the assignment, not its position in the current list. */
+export function enumerateWorlds(doc: EditorDocument): World[] {
+  if (worldCount(doc) > MAX_WORLDS)
+    throw new Error(`This scene exceeds ${MAX_WORLDS} worlds. Commit another decision first.`);
+  let worlds: Assignment[] = [{}];
+  for (const o of doc.objects)
+    for (const kind of ['motion', 'delay'] as const) {
+      const c = o[kind];
+      const values = c.resolved !== null ? [c.resolved] : c.options;
+      worlds = worlds.flatMap((w) =>
+        values.map((value) => ({ ...w, [decisionId(o.id, kind)]: value })),
+      );
     }
-    pieces = [{ id: doc.objectId, x, y, size, polygon: false,
-      angle: doc.edits.spin ? Math.min(t, restAt) * 170 : 0 }];
+  return worlds.map((assignment) => ({
+    id: Object.entries(assignment)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}=${v}`)
+      .join('|'),
+    assignment,
+  }));
+}
+export function commitDecision(
+  doc: EditorDocument,
+  id: string,
+  value: Motion | number | null,
+): EditorDocument {
+  const object = doc.objects.find(
+    (o) => id === decisionId(o.id, 'motion') || id === decisionId(o.id, 'delay'),
+  );
+  if (!object) throw new Error('That decision no longer exists.');
+  const kind = id === decisionId(object.id, 'motion') ? 'motion' : 'delay';
+  if (value !== null && !(object[kind].options as (Motion | number)[]).includes(value))
+    throw new Error('Choose an available option.');
+  const next = {
+    ...doc,
+    objects: doc.objects.map((o) =>
+      o.id !== object.id ? o : { ...o, [kind]: { ...o[kind], resolved: value } },
+    ),
+  };
+  if (worldCount(next) > MAX_WORLDS)
+    throw new Error(
+      `Reopening this decision would exceed ${MAX_WORLDS} worlds. Commit another choice first.`,
+    );
+  return next;
+}
+export function commitWorld(doc: EditorDocument, world: World): EditorDocument {
+  return {
+    ...doc,
+    objects: doc.objects.map((o) => ({
+      ...o,
+      motion: { ...o.motion, resolved: world.assignment[decisionId(o.id, 'motion')] as Motion },
+      delay: { ...o.delay, resolved: world.assignment[decisionId(o.id, 'delay')] as number },
+    })),
+  };
+}
+export function removeObject(doc: EditorDocument, id: string): EditorDocument {
+  return {
+    ...doc,
+    objects: doc.objects.filter((o) => o.id !== id),
+    relations: doc.relations.filter((r) => r.source !== id && r.target !== id),
+  };
+}
+/** Causal edges form a DAG: no hidden solver order or cyclic launch deadlocks. */
+export function relationProblem(doc: EditorDocument, link: Relation): string | null {
+  if (link.source === link.target) return 'Choose two different objects.';
+  if (![link.source, link.target].every((id) => doc.objects.some((o) => o.id === id)))
+    return 'Both objects must exist.';
+  const links = [
+    ...doc.relations.filter((r) => r.id !== link.id && r.enabled),
+    ...(link.enabled ? [link] : []),
+  ];
+  const visit = (id: string, path: Set<string>): boolean => {
+    if (path.has(id)) return true;
+    const next = new Set(path).add(id);
+    return links.filter((r) => r.source === id).some((r) => visit(r.target, next));
+  };
+  if (doc.objects.some((o) => visit(o.id, new Set())))
+    return 'This creates a causal cycle. Connect the objects in one direction.';
+  if (
+    link.enabled &&
+    links.some(
+      (r) =>
+        r.id !== link.id &&
+        r.target === link.target &&
+        r.action === 'follow' &&
+        link.action === 'follow',
+    )
+  )
+    return 'An object can follow one source at a time. Disable its other follow link first.';
+  return null;
+}
+
+type Body = Piece & { vx: number; vy: number; angular: number };
+type State = {
+  object: SceneObject;
+  bodies: Body[];
+  releaseAt: number;
+  released: boolean;
+  hit: boolean;
+  rest: boolean;
+  quiet: number;
+  pulseUntil: number;
+  lastRest: number | null;
+};
+type LinkState = { link: Relation; due: number | null; fired: boolean };
+const DT = 1 / 60;
+function anchorOf(state: State): Point {
+  if (state.object.anchor === 'largest') {
+    const p = state.bodies.reduce((a, b) => (a.size >= b.size ? a : b));
+    return { x: p.x, y: p.y };
   }
-  let target: Point;
-  if (doc.edits.target === 'largest') {
-    const biggest = pieces.reduce((a, b) => a.size >= b.size ? a : b);
-    target = { x: biggest.x, y: biggest.y };
-  } else {
-    const area = pieces.reduce((s, p) => s + p.size * p.size, 0);
-    target = pieces.reduce((s, p) => ({ x: s.x + p.x * p.size * p.size / area,
-      y: s.y + p.y * p.size * p.size / area }), { x: 0, y: 0 });
+  const mass = state.bodies.reduce((s, p) => s + p.size * p.size, 0);
+  return state.bodies.reduce(
+    (p, b) => ({ x: p.x + (b.x * b.size ** 2) / mass, y: p.y + (b.y * b.size ** 2) / mass }),
+    { x: 0, y: 0 },
+  );
+}
+function initialBody(o: SceneObject): Body {
+  return {
+    id: o.id,
+    ...o.origin,
+    size: o.size,
+    angle: 0,
+    shape: o.shape,
+    vx: o.velocity,
+    vy: 0,
+    angular: o.spin ? 130 : 0,
+  };
+}
+export function simulateWorld(doc: EditorDocument, world: World): Simulation {
+  const enabled = doc.relations.filter((r) => r.enabled).sort((a, b) => a.id.localeCompare(b.id));
+  const states: State[] = [...doc.objects]
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((object) => ({
+      object,
+      bodies: [initialBody(object)],
+      releaseAt: enabled.some((r) => r.target === object.id && r.action === 'launch')
+        ? Infinity
+        : Number(world.assignment[decisionId(object.id, 'delay')]),
+      released: false,
+      hit: false,
+      rest: false,
+      quiet: 0,
+      pulseUntil: -1,
+      lastRest: null,
+    }));
+  const byId = new Map(states.map((s) => [s.object.id, s]));
+  const links: LinkState[] = enabled.map((link) => ({ link, due: null, fired: false }));
+  const events: SceneEvent[] = [];
+  const frames: Frame[] = [];
+  const firstEvents = new Map<string, number>();
+  const record = (s: State, type: 'release' | 'impact' | 'rest', time: number) => {
+    const key = `${s.object.id}:${type}`;
+    if (!firstEvents.has(key)) {
+      firstEvents.set(key, time);
+      events.push({ objectId: s.object.id, type, time });
+    }
+  };
+  for (let step = 0; step <= DURATION / DT; step++) {
+    const t = step * DT;
+    // Event rules are one-shot. Cascades settle in a bounded number of passes, independent of document ordering.
+    for (let pass = 0; pass <= states.length; pass++) {
+      let changed = false;
+      for (const s of states)
+        if (!s.released && t + 1e-8 >= s.releaseAt) {
+          s.released = true;
+          record(s, 'release', t);
+          changed = true;
+        }
+      for (const l of links) {
+        if (l.fired) continue;
+        const source = byId.get(l.link.source)!,
+          target = byId.get(l.link.target)!;
+        if (l.due === null) {
+          const triggerTime =
+            l.link.trigger === 'contact'
+              ? source.released &&
+                source.bodies.some((a) =>
+                  target.bodies.some(
+                    (b) => Math.hypot(a.x - b.x, a.y - b.y) <= (a.size + b.size) * 0.5,
+                  ),
+                )
+                ? t
+                : undefined
+              : firstEvents.get(
+                  `${source.object.id}:${l.link.trigger === 'start' ? 'release' : l.link.trigger}`,
+                );
+          if (triggerTime !== undefined) l.due = triggerTime + l.link.delay;
+        }
+        if (l.due !== null && t + 1e-8 >= l.due) {
+          l.fired = true;
+          changed = true;
+          events.push({ time: t, type: 'link', objectId: target.object.id, relationId: l.link.id });
+          if (l.link.action === 'launch' && !target.released)
+            target.releaseAt = Math.min(
+              target.releaseAt,
+              t + Number(world.assignment[decisionId(target.object.id, 'delay')]),
+            );
+          if (l.link.action === 'pulse') target.pulseUntil = t + 0.8;
+          if (l.link.action === 'push') {
+            const a = anchorOf(source),
+              b = anchorOf(target),
+              distance = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+            target.bodies.forEach((body) => {
+              body.vx += ((b.x - a.x) / distance) * 200 * l.link.strength;
+              body.vy -= 100 * l.link.strength;
+            });
+            target.rest = false;
+            target.quiet = 0;
+          }
+        }
+      }
+      if (!changed) break;
+    }
+    if (step % 2 === 0)
+      frames.push({
+        time: t,
+        activeLinks: links.filter((l) => l.fired).map((l) => l.link.id),
+        objects: states.map((s) => ({
+          id: s.object.id,
+          released: s.released,
+          settled: s.rest,
+          pulse: t < s.pulseUntil,
+          anchor: anchorOf(s),
+          pieces: s.bodies.map(({ vx: _vx, vy: _vy, angular: _a, ...piece }) => ({ ...piece })),
+        })),
+      });
+    if (step === DURATION / DT) break;
+    const previousAnchors = new Map(states.map((s) => [s.object.id, anchorOf(s)]));
+    const previousRest = new Map(states.map((s) => [s.object.id, s.rest]));
+    for (const s of states) {
+      if (!s.released) continue;
+      const o = s.object;
+      const motion = world.assignment[decisionId(o.id, 'motion')] as Motion;
+      const follow = links.find(
+        (l) => l.fired && l.link.target === o.id && l.link.action === 'follow',
+      );
+      const center = anchorOf(s);
+      const source = follow ? byId.get(follow.link.source)! : null;
+      const sourceAnchor = source ? previousAnchors.get(source.object.id)! : null;
+      let broken: Body[] | null = null;
+      let moving = false;
+      for (const b of s.bodies) {
+        if (follow && sourceAnchor) {
+          const k = 10 * follow.link.strength;
+          b.vx += ((sourceAnchor.x + follow.link.offset.x - center.x) * k - b.vx * 6) * DT;
+          b.vy += ((sourceAnchor.y + follow.link.offset.y - center.y) * k - b.vy * 6) * DT;
+        } else b.vy += 430 * DT;
+        b.x += b.vx * DT;
+        b.y += b.vy * DT;
+        const radius = b.size / 2;
+        if (b.x < radius || b.x > WIDTH - radius) {
+          b.x = clamp(b.x, radius, WIDTH - radius);
+          b.vx *= -0.5;
+        }
+        if (b.y < radius) {
+          b.y = radius;
+          b.vy = Math.abs(b.vy) * 0.5;
+        }
+        if (b.y >= FLOOR - radius) {
+          b.y = FLOOR - radius;
+          const speed = Math.abs(b.vy);
+          if (!s.hit) {
+            s.hit = true;
+            record(s, 'impact', t + DT);
+            if (motion === 'shatter') {
+              broken = Array.from({ length: 6 }, (_, i) => ({
+                id: `${o.id}/fragment-${i}`,
+                x: b.x + (i - 2.5) * 4,
+                y: FLOOR - 12 - (i % 2) * 7,
+                size: o.size * [0.34, 0.48, 0.64, 0.38, 0.43, 0.3][i],
+                angle: i * 49,
+                shape: 'fragment',
+                vx: b.vx * 0.45 + (i - 2.5) * 53,
+                vy: -85 - (i % 3) * 45 * o.energy,
+                angular: (i % 2 ? 1 : -1) * (95 + i * 18),
+              }));
+            }
+          }
+          const restitution =
+            b.shape === 'fragment' ? 0.3 : motion === 'bounce' ? 0.35 + o.energy * 0.38 : 0;
+          b.vy = speed > 24 ? -speed * restitution : 0;
+          if (Math.abs(b.vy) < 12) b.vy = 0;
+          // Friction stops a sliding body in finite time. Follow has its own damping.
+          if (!follow)
+            b.vx =
+              Math.sign(b.vx) * Math.max(0, Math.abs(b.vx) - (motion === 'slide' ? 32 : 49) * DT);
+          if (Math.abs(b.vx) < 1 && Math.abs(b.vy) < 1) b.angular = 0;
+        }
+        b.angle += b.angular * DT;
+        if (Math.hypot(b.vx, b.vy) > 3) moving = true;
+      }
+      if (broken) {
+        s.bodies = broken;
+        moving = true;
+      }
+      if (source && !previousRest.get(source.object.id)) moving = true;
+      s.quiet = moving ? 0 : s.quiet + DT;
+      s.rest = s.quiet >= 0.3;
+      if (s.rest && s.lastRest === null) {
+        s.lastRest = t + DT;
+        record(s, 'rest', t + DT);
+      }
+    }
   }
-  return { branch: id, pieces, target, restAt, settled, spinApplicable,
-    caption: doc.edits.captionEnabled && settled ? doc.edits.caption : null };
+  return {
+    world,
+    frames,
+    events: events.sort((a, b) => a.time - b.time),
+    waiting: states.filter((s) => !s.released).map((s) => s.object.id),
+    dormant: links.filter((l) => !l.fired).map((l) => l.link.id),
+  };
 }
-export function traceBranch(doc: EditorDocument, id: BranchId, until = DURATION): Point[] {
-  const steps = Math.max(1, Math.ceil(until * 30));
-  return Array.from({ length: steps + 1 }, (_, i) => evaluateBranch(doc, id, until * i / steps).target);
+export function frameAt(sim: Simulation, time: number): Frame {
+  return sim.frames[clamp(Math.round(time * 30 + 1e-8), 0, sim.frames.length - 1)];
 }
-export function resolveDocument(doc: EditorDocument, branch: BranchId): EditorDocument {
-  if (!doc.enabled.includes(branch)) throw new Error('Cannot resolve an excluded branch');
-  return { ...doc, resolved: branch };
+export function simulateScene(doc: EditorDocument): Simulation[] {
+  return enumerateWorlds(doc).map((w) => simulateWorld(doc, w));
 }
-export function toggleBranch(doc: EditorDocument, branch: BranchId): EditorDocument {
-  if (doc.resolved) return doc;
-  const enabled = doc.enabled.includes(branch)
-    ? doc.enabled.filter(id => id !== branch) : BRANCHES.map(b => b.id).filter(id => id === branch || doc.enabled.includes(id));
-  return enabled.length ? { ...doc, enabled } : doc;
+/** Visual-only edits do not invalidate the physics cache. */
+export function simulationKey(doc: EditorDocument): string {
+  return JSON.stringify({
+    objects: doc.objects.map(({ name: _n, color: _c, ...o }) => o),
+    relations: doc.relations,
+  });
+}
+function finite(n: unknown, lo: number, hi: number): n is number {
+  return typeof n === 'number' && Number.isFinite(n) && n >= lo && n <= hi;
 }
 export function isEditorDocument(value: unknown): value is EditorDocument {
   if (!value || typeof value !== 'object') return false;
   const d = value as EditorDocument;
-  const isBranch = (id: unknown): id is BranchId => BRANCHES.some(b => b.id === id);
-  const numberIn = (n: unknown, low: number, high: number) => typeof n === 'number' && Number.isFinite(n) && n >= low && n <= high;
-  return d.version === 1 && d.objectId === 'object-01' && Array.isArray(d.enabled) && d.enabled.length > 0
-    && d.enabled.every(isBranch) && new Set(d.enabled).size === d.enabled.length
-    && (d.resolved === null || (isBranch(d.resolved) && d.enabled.includes(d.resolved)))
-    && !!d.origin && numberIn(d.origin.x, 45, 260) && numberIn(d.origin.y, 30, 170)
-    && numberIn(d.impact, .2, 1.2) && !!d.edits
-    && ['trajectory', 'follow', 'captionEnabled', 'spin'].every(k => typeof d.edits[k as keyof SharedEdits] === 'boolean')
-    && typeof d.edits.caption === 'string' && d.edits.caption.length <= 120
-    && ['centroid', 'largest'].includes(d.edits.target) && numberIn(d.edits.scale, .65, 1.5);
+  const point = (v: Point, x1: number, x2: number, y1: number, y2: number) =>
+    !!v && finite(v.x, x1, x2) && finite(v.y, y1, y2);
+  const choice = (c: Choice<Motion | number>, allowed: readonly (Motion | number)[]) =>
+    !!c &&
+    Array.isArray(c.options) &&
+    c.options.length > 0 &&
+    c.options.every((v) => allowed.includes(v)) &&
+    new Set(c.options).size === c.options.length &&
+    (c.resolved === null || c.options.includes(c.resolved));
+  const id = (s: unknown): s is string => typeof s === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(s);
+  try {
+    if (
+      d.version !== 2 ||
+      typeof d.title !== 'string' ||
+      d.title.length > 100 ||
+      !Array.isArray(d.objects) ||
+      d.objects.length < 1 ||
+      d.objects.length > MAX_OBJECTS ||
+      !Array.isArray(d.relations) ||
+      d.relations.length > MAX_RELATIONS
+    )
+      return false;
+    if (
+      new Set(d.objects.map((o) => o.id)).size !== d.objects.length ||
+      new Set(d.relations.map((r) => r.id)).size !== d.relations.length
+    )
+      return false;
+    if (
+      !d.objects.every(
+        (o) =>
+          id(o.id) &&
+          typeof o.name === 'string' &&
+          o.name.length <= 40 &&
+          /^#[0-9a-fA-F]{6}$/.test(o.color) &&
+          ['square', 'circle', 'diamond'].includes(o.shape) &&
+          point(o.origin, 20, 940, 20, 390) &&
+          finite(o.size, 16, 64) &&
+          finite(o.velocity, -220, 220) &&
+          finite(o.energy, 0.2, 1.2) &&
+          ['centroid', 'largest'].includes(o.anchor) &&
+          typeof o.spin === 'boolean' &&
+          choice(o.motion, MOTIONS) &&
+          choice(o.delay, DELAYS),
+      )
+    )
+      return false;
+    if (
+      !d.relations.every(
+        (r) =>
+          id(r.id) &&
+          typeof r.enabled === 'boolean' &&
+          ['start', 'impact', 'rest', 'contact'].includes(r.trigger) &&
+          ['follow', 'push', 'launch', 'pulse'].includes(r.action) &&
+          finite(r.delay, 0, 3) &&
+          finite(r.strength, 0.2, 2) &&
+          point(r.offset, -400, 400, -250, 200) &&
+          !relationProblem(d, r),
+      )
+    )
+      return false;
+    return worldCount(d) <= MAX_WORLDS;
+  } catch {
+    return false;
+  }
+}
+/** Older exports remain importable; no preset is silently discarded. */
+export function parseDocument(value: unknown): EditorDocument | null {
+  if (isEditorDocument(value)) return value;
+  if (!value || typeof value !== 'object') return null;
+  const old = value as Record<string, unknown>;
+  if (
+    old.version !== 1 ||
+    old.objectId !== 'object-01' ||
+    !Array.isArray(old.enabled) ||
+    !old.enabled.length ||
+    !old.enabled.every((v) => MOTIONS.includes(v)) ||
+    new Set(old.enabled).size !== old.enabled.length
+  )
+    return null;
+  const origin = old.origin as Point,
+    edits = old.edits as Record<string, unknown>;
+  if (
+    !origin ||
+    !finite(origin.x, 45, 260) ||
+    !finite(origin.y, 30, 170) ||
+    !edits ||
+    !finite(edits.scale, 0.65, 1.5) ||
+    !finite(old.impact, 0.2, 1.2) ||
+    (old.resolved !== null && !old.enabled.includes(old.resolved))
+  )
+    return null;
+  const object = makeObject(0);
+  object.id = 'object-01';
+  object.origin = { x: origin.x, y: origin.y * 1.3 };
+  object.size = edits.scale * 32;
+  object.energy = old.impact;
+  object.spin = edits.spin === true;
+  object.anchor = edits.target === 'largest' ? 'largest' : 'centroid';
+  object.motion = { options: old.enabled as Motion[], resolved: old.resolved as Motion | null };
+  return { version: 2, title: 'Imported superposition scene', objects: [object], relations: [] };
 }
